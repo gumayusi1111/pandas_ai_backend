@@ -80,7 +80,11 @@ app.use((err, req, res, next) => {
 });
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: ['https://pandasai.onrender.com', 'http://localhost:5173'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Serve static files from frontend build
@@ -549,7 +553,7 @@ app.get('/api/latest_chart', (req, res) => {
 app.get('/api/history', (req, res) => {
   try {
     const history = loadHistory();
-    res.json(history);
+    res.json(history || []);
   } catch (error) {
     logToFile(`Error loading history: ${error.message}`, 'error');
     // 不返回错误，而是返回空数组
