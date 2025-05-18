@@ -89,6 +89,250 @@ app.use(express.static(path.join(__dirname, '../frontend/dist')));
 // Serve chart images from the charts directory
 app.use('/charts', express.static(path.join(__dirname, 'charts')));
 
+// AI Config file path
+const aiConfigPath = path.join(__dirname, 'data', 'ai_config.json');
+
+// Helper function to load all AI configs and the active ID
+function loadAllAiConfigs() {
+  if (fs.existsSync(aiConfigPath)) {
+    try {
+      const data = fs.readFileSync(aiConfigPath, 'utf8');
+      // Ensure that if parsing fails or structure is wrong, we return a default
+      const parsedData = JSON.parse(data);
+      if (parsedData && Array.isArray(parsedData.configurations) && typeof parsedData.activeConfigId !== 'undefined') {
+        return parsedData;
+      }
+      logToFile('AI config file has incorrect structure, returning default.', 'warn');
+      // Fallthrough to default if structure is not as expected
+    } catch (error) {
+      logToFile(`Error loading AI configs: ${error.message}. Returning default.`, 'error');
+      // Fallthrough to default if parsing fails
+    }
+  }
+  // Return default structure if file doesn't exist or on any error during load/parse
+  return { configurations: [], activeConfigId: null };
+}
+
+// Helper function to save all AI configs and the active ID
+function saveAllAiConfigs(configsObject) { // configsObject is { configurations: [], activeConfigId: "..." }
+  try {
+    fs.writeFileSync(aiConfigPath, JSON.stringify(configsObject, null, 2), 'utf8');
+    logToFile('AI configurations saved successfully.');
+  } catch (error) {
+    logToFile(`Error saving AI configurations: ${error.message}`, 'error');
+  }
+}
+
+// API endpoint to get current AI config (THIS WILL BE REPLACED/REMOVED SOON)
+// For now, let's adapt it to return the active config or the first one if no activeId
+app.get('/api/ai-config', (req, res) => {
+  const allConfigs = loadAllAiConfigs();
+  let activeConfig = allConfigs.configurations.find(c => c.id === allConfigs.activeConfigId);
+  if (!activeConfig && allConfigs.configurations.length > 0) {
+    // Fallback to the first config if no active one is set (should ideally not happen with proper management)
+    activeConfig = allConfigs.configurations[0]; 
+  }
+  if (activeConfig) {
+    res.json(activeConfig);
+  } else {
+    // If no configs exist at all, return a default-like structure or an error/empty object
+    res.status(404).json({ error: 'No AI configurations found or no active configuration set.', apiBaseUrl: '', apiKey: '', modelName: 'deepseek-chat' });
+  }
+});
+
+// API endpoint to update AI config (THIS WILL BE REPLACED/REMOVED SOON)
+// For now, let's make it update the first config, or add if none exist, and set it active.
+// This is temporary to keep frontend somewhat functional until new endpoints are ready.
+app.put('/api/ai-config', (req, res) => {
+  const { apiBaseUrl, apiKey, modelName } = req.body;
+  if (typeof apiBaseUrl === 'undefined' || typeof apiKey === 'undefined' || typeof modelName === 'undefined') {
+    return res.status(400).json({ error: 'Missing required fields: apiBaseUrl, apiKey, modelName' });
+  }
+
+  const allConfigs = loadAllAiConfigs();
+  let configToUpdate;
+  let newConfigId = `config-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  if (allConfigs.activeConfigId) {
+    configToUpdate = allConfigs.configurations.find(c => c.id === allConfigs.activeConfigId);
+  }
+  
+  if (configToUpdate) {
+    configToUpdate.apiBaseUrl = apiBaseUrl;
+    configToUpdate.apiKey = apiKey;
+    configToUpdate.modelName = modelName;
+    // Keep its existing name or default if it was somehow missing
+    configToUpdate.name = configToUpdate.name || `Config ${allConfigs.configurations.indexOf(configToUpdate) + 1}`;
+  } else if (allConfigs.configurations.length > 0 && !allConfigs.activeConfigId) {
+    // If there are configs but no active one, update the first one as a fallback
+    configToUpdate = allConfigs.configurations[0];
+    configToUpdate.apiBaseUrl = apiBaseUrl;
+    configToUpdate.apiKey = apiKey;
+    configToUpdate.modelName = modelName;
+    configToUpdate.name = configToUpdate.name || 'Default Config';
+    allConfigs.activeConfigId = configToUpdate.id; // Set it active
+  } else {
+    // No configs exist, or no active one and no existing ones to update: add a new one
+    configToUpdate = {
+      id: newConfigId,
+      name: 'Default Config', // Give it a default name
+      apiBaseUrl,
+      apiKey,
+      modelName,
+      isActive: true // Implicitly, as it will be the only one / made active
+    };
+    allConfigs.configurations.push(configToUpdate);
+    allConfigs.activeConfigId = newConfigId;
+  }
+  
+  // Ensure isActive flag is consistent with activeConfigId
+  allConfigs.configurations.forEach(c => {
+    c.isActive = (c.id === allConfigs.activeConfigId);
+  });
+
+  saveAllAiConfigs(allConfigs);
+  // Return the updated/added config that is now active
+  const activeSavedConfig = allConfigs.configurations.find(c => c.id === allConfigs.activeConfigId);
+  res.json({ message: 'AI configuration updated successfully', config: activeSavedConfig });
+});
+
+// --- New CRUD Endpoints for Multiple AI Configurations ---
+
+// GET all AI configurations
+app.get('/api/ai-configs', (req, res) => {
+  const allConfigs = loadAllAiConfigs();
+  res.json(allConfigs); // Returns { configurations: [], activeConfigId: "..." }
+});
+
+// POST a new AI configuration
+app.post('/api/ai-configs', (req, res) => {
+  const { name, apiBaseUrl, apiKey, modelName } = req.body;
+
+  if (!name || typeof apiBaseUrl === 'undefined' || typeof apiKey === 'undefined' || typeof modelName === 'undefined') {
+    return res.status(400).json({ error: 'Missing required fields: name, apiBaseUrl, apiKey, modelName' });
+  }
+
+  const allConfigs = loadAllAiConfigs();
+  const newConfigId = `config-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  
+  const newConfig = {
+    id: newConfigId,
+    name,
+    apiBaseUrl,
+    apiKey,
+    modelName,
+    isActive: false // Will be set to true if it becomes the active one
+  };
+
+  allConfigs.configurations.push(newConfig);
+
+  // If no config is currently active, or if it's the first config, make this new one active.
+  if (!allConfigs.activeConfigId || allConfigs.configurations.length === 1) {
+    allConfigs.activeConfigId = newConfigId;
+  }
+  
+  // Ensure isActive flags are consistent
+  allConfigs.configurations.forEach(c => {
+    c.isActive = (c.id === allConfigs.activeConfigId);
+  });
+
+  saveAllAiConfigs(allConfigs);
+  // Return the newly created config (it might not be the active one if one was already active)
+  const createdConfig = allConfigs.configurations.find(c => c.id === newConfigId);
+  res.status(201).json({ message: 'AI configuration added successfully', config: createdConfig, allConfigs });
+});
+
+// PUT to set an AI configuration as active
+app.put('/api/ai-configs/:id/set-active', (req, res) => {
+  const { id } = req.params;
+  const allConfigs = loadAllAiConfigs();
+
+  const configToActivate = allConfigs.configurations.find(c => c.id === id);
+
+  if (!configToActivate) {
+    return res.status(404).json({ error: 'Configuration not found' });
+  }
+
+  allConfigs.activeConfigId = id;
+  allConfigs.configurations.forEach(c => {
+    c.isActive = (c.id === id);
+  });
+
+  saveAllAiConfigs(allConfigs);
+  res.json({ message: `Configuration '${configToActivate.name}' set to active.`, activeConfigId: id, configurations: allConfigs.configurations });
+});
+
+// PUT to update an existing AI configuration by ID
+app.put('/api/ai-configs/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, apiBaseUrl, apiKey, modelName } = req.body;
+
+  // Basic validation for incoming data
+  if (!name || typeof apiBaseUrl === 'undefined' || typeof apiKey === 'undefined' || typeof modelName === 'undefined') {
+    return res.status(400).json({ error: 'Missing required fields: name, apiBaseUrl, apiKey, modelName' });
+  }
+
+  const allConfigs = loadAllAiConfigs();
+  const configIndex = allConfigs.configurations.findIndex(c => c.id === id);
+
+  if (configIndex === -1) {
+    return res.status(404).json({ error: 'Configuration not found' });
+  }
+
+  // Update the configuration details
+  allConfigs.configurations[configIndex] = {
+    ...allConfigs.configurations[configIndex], // Keep existing id and isActive status initially
+    name,
+    apiBaseUrl,
+    apiKey,
+    modelName
+  };
+  // isActive status is managed by activeConfigId and set-active endpoint, 
+  // but ensure it's present if we are overwriting the object.
+  // The isActive flag on the object itself will be re-synced if set-active is called or a new config is added.
+
+  saveAllAiConfigs(allConfigs);
+  res.json({ message: `Configuration '${name}' updated successfully.`, config: allConfigs.configurations[configIndex] });
+});
+
+// DELETE an AI configuration by ID
+app.delete('/api/ai-configs/:id', (req, res) => {
+  const { id } = req.params;
+  const allConfigs = loadAllAiConfigs();
+
+  const configIndex = allConfigs.configurations.findIndex(c => c.id === id);
+
+  if (configIndex === -1) {
+    return res.status(404).json({ error: 'Configuration not found' });
+  }
+
+  const deletedConfig = allConfigs.configurations[configIndex];
+
+  // Prevent deleting the active configuration if it's the only one
+  // Or, more robustly, if it is active, require another to be set active first, or clear activeConfigId.
+  // For simplicity now, if the deleted one was active, and there are others, make the first one active.
+  // If it was active and it's the last one, clear activeConfigId.
+  if (allConfigs.activeConfigId === id) {
+    allConfigs.configurations.splice(configIndex, 1); // Remove the config
+    if (allConfigs.configurations.length > 0) {
+      allConfigs.activeConfigId = allConfigs.configurations[0].id; // Make the new first one active
+      allConfigs.configurations[0].isActive = true;
+    } else {
+      allConfigs.activeConfigId = null; // No configs left
+    }
+  } else {
+    allConfigs.configurations.splice(configIndex, 1); // Just remove if not active
+  }
+  
+  // Ensure isActive flags are consistent
+  allConfigs.configurations.forEach(c => {
+    c.isActive = (c.id === allConfigs.activeConfigId);
+  });
+
+  saveAllAiConfigs(allConfigs);
+  res.json({ message: `Configuration '${deletedConfig.name}' deleted successfully.`, activeConfigId: allConfigs.activeConfigId });
+});
+
 // History file path
 const historyFilePath = path.join(__dirname, 'data', 'history.json');
 // Track the latest chart file
@@ -161,22 +405,42 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
   const { model, query, preference } = req.body;
   const filePath = req.file ? req.file.path : null;
   
-  logToFile(`Processing request: Model=${model}, Query=${query}, File=${filePath || 'None'}, Preference=${preference || 'None'}`);
-  
-  // 验证请求参数
-  if (!model || !query) {
-    logToFile('Missing required parameters', 'error');
-    return res.status(400).json({ error: '缺少必要的参数：model和query' });
+  logToFile(`Processing request: Query=${query}, File=${filePath || 'None'}, Preference=${preference || 'None'}`);
+
+  const allConfigs = loadAllAiConfigs();
+  const activeConfig = allConfigs.configurations.find(c => c.id === allConfigs.activeConfigId);
+
+  if (!activeConfig) {
+    logToFile('No active AI provider configuration found.', 'error');
+    return res.status(500).json({ error: 'No active AI provider configuration found. Please set one in settings.' });
   }
   
-  // Run Python script to generate code
-  const pythonProcess = spawn('python', [
+  const modelNameToUse = model || activeConfig.modelName || 'deepseek-chat';
+  
+  if (!activeConfig.apiKey || !activeConfig.apiBaseUrl) {
+      logToFile('Active AI provider API key or Base URL is not configured.', 'error');
+      return res.status(500).json({ error: 'Active AI provider not configured. Please set API key and base URL in settings.' });
+  }
+  
+  if (!query) {
+    logToFile('Missing required parameter: query', 'error');
+    return res.status(400).json({ error: 'Missing required parameter: query' });
+  }
+  
+  // Prepare arguments for Python script
+  const pythonArgs = [
     path.join(__dirname, 'pandasai_runner.py'),
-    model,
     query,
     filePath || 'none',
-    preference || 'default'
-  ]);
+    '--model-name', modelNameToUse,
+    '--preference', preference || 'default',
+    '--api-key', activeConfig.apiKey,
+    '--api-base-url', activeConfig.apiBaseUrl
+  ];
+
+  logToFile(`Spawning Python script with args: ${pythonArgs.map(arg => arg.includes(' ') ? `"${arg}"` : arg).join(' ')}`);
+
+  const pythonProcess = spawn('python', pythonArgs);
   
   let result = '';
   let errorLogs = '';

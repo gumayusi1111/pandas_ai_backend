@@ -14,6 +14,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from pandasai import Agent
 from pandasai.llm.local_llm import LocalLLM
+import argparse
 
 # Redirect print to stderr to avoid interfering with JSON output
 def debug_print(*args, **kwargs):
@@ -30,8 +31,8 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 # Load environment variables
 load_dotenv(override=True)
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
-API_BASE = os.getenv("DEEPSEEK_API_BASE")
+# API_KEY = os.getenv("DEEPSEEK_API_KEY") # Will be set based on args or env
+# API_BASE = os.getenv("DEEPSEEK_API_BASE") # Will be set based on args or env
 
 # Dictionary of file readers for different formats
 FILE_READERS = {
@@ -135,30 +136,37 @@ class PlotCapture:
             debug_print(f"Error copying chart: {str(e)}")
             self.chart_path = None
 
-def generate_pandas_code(file_path, query, model_name="deepseek-chat", preference="default"):
+def generate_pandas_code(file_path, query, cli_model_name=None, preference="default", cli_api_key=None, cli_api_base_url=None):
     """
     Generate pandas code using PandasAI.
     Preference can be 'default' or 'standard_pandas'
     """
+    # Determine active configuration
+    active_api_key = cli_api_key if cli_api_key else os.getenv("DEEPSEEK_API_KEY")
+    active_api_base = cli_api_base_url if cli_api_base_url else os.getenv("DEEPSEEK_API_BASE")
+    active_model_name = cli_model_name if cli_model_name else "deepseek-chat" # Default if nothing is passed
+
     result = {
         'timestamp': datetime.now().isoformat(),
         'code': None,
         'error': None,
         'tokens': 0,
         'query': query,
-        'model': model_name,
-        'preference': preference
+        'model': active_model_name, # Use active model name
+        'preference': preference,
+        'config_source': 'cli' if cli_api_key or cli_api_base_url or cli_model_name else 'env'
     }
     
-    # Validate model name
-    valid_models = ["deepseek-chat", "deepseek-r1"]
-    if model_name not in valid_models:
-        result['error'] = f"Invalid model name. Choose from: {', '.join(valid_models)}"
-        return result
+    # Validate model name (can be dynamic based on provider, for now keep existing validation or make it more flexible)
+    # For now, we assume the model passed via CLI is valid for the given custom provider.
+    # If using environment variables, stick to a predefined list.
+    if not cli_model_name and active_model_name not in ["deepseek-chat", "deepseek-r1"]: # Keep old validation if using env defaults
+         result['error'] = f"Invalid environment default model name. Choose from: deepseek-chat, deepseek-r1"
+         return result
     
-    # Check API keys
-    if not API_KEY or not API_BASE:
-        result['error'] = "API key or base URL not found in environment variables"
+    # Check API keys if they are supposed to come from env (i.e., not overridden by CLI)
+    if not active_api_key or not active_api_base:
+        result['error'] = "API key or base URL not found. Provide them via CLI arguments or environment variables."
         return result
     
     # Use sample data if no file is provided
@@ -194,11 +202,11 @@ def generate_pandas_code(file_path, query, model_name="deepseek-chat", preferenc
     
     # Initialize LLM and PandasAI Agent
     try:
-        debug_print(f"Initializing LLM with model {model_name}")
+        debug_print(f"Initializing LLM with model {active_model_name}, API Base: {active_api_base[:20]}...") # Use active model name
         llm = LocalLLM(
-            api_key=API_KEY,
-            api_base=API_BASE,
-            model=model_name
+            api_key=active_api_key, # Use active API key
+            api_base=active_api_base, # Use active API base
+            model=active_model_name # Use active model name
         )
         
         # Create a plot capture handler
@@ -241,8 +249,11 @@ def generate_pandas_code(file_path, query, model_name="deepseek-chat", preferenc
         
         # Get the generated code
         if hasattr(pandas_ai_agent, 'last_code_executed'):
-            # Clean the code to remove PandasAI result formatting
             raw_code = pandas_ai_agent.last_code_executed
+            
+            debug_print(f"Raw code from LLM:\n{raw_code}")
+            
+            # Clean the code to remove PandasAI result formatting
             cleaned_code = clean_pandasai_code(raw_code, preference)
             
             result['code'] = cleaned_code
@@ -272,16 +283,26 @@ def generate_pandas_code(file_path, query, model_name="deepseek-chat", preferenc
     return result
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        debug_print("Usage: python pandasai_runner.py <model_name> <query> <file_path> [preference]")
-        sys.exit(1)
-    
-    model_name = sys.argv[1]
-    query = sys.argv[2]
-    file_path = sys.argv[3]
-    preference = sys.argv[4] if len(sys.argv) > 4 else "default"
-    
-    result = generate_pandas_code(file_path, query, model_name, preference)
+    parser = argparse.ArgumentParser(description="PandasAI Runner Script")
+    parser.add_argument("query", help="The query/question to ask PandasAI.")
+    parser.add_argument("file_path", help="Path to the data file (or 'none' for sample data).")
+    parser.add_argument("--model-name", help="Name of the AI model to use (e.g., deepseek-chat). Overrides active config from backend.")
+    parser.add_argument("--preference", default="default", help="Preference for code generation ('default' or 'standard_pandas').")
+    parser.add_argument("--api-key", help="API key for the AI provider. Overrides active config from backend.")
+    parser.add_argument("--api-base-url", help="API base URL for the AI provider. Overrides active config from backend.")
+
+    args = parser.parse_args()
+
+    # Call generate_pandas_code with the parsed arguments
+    # Pass model_name explicitly, it will be handled inside generate_pandas_code
+    result = generate_pandas_code(
+        args.file_path, 
+        args.query, 
+        cli_model_name=args.model_name, # Pass CLI model name
+        preference=args.preference,
+        cli_api_key=args.api_key,       # Pass CLI API key
+        cli_api_base_url=args.api_base_url # Pass CLI API base URL
+    )
     
     # Only output the JSON result to stdout
     print(json.dumps(result)) 
