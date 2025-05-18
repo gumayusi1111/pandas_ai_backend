@@ -71,3 +71,5 @@ htmlcov/
 
 # Render specific
  
+# Generated charts
+charts/ 
