@@ -255,8 +255,17 @@ app.get('/api/latest_chart', (req, res) => {
     
     if (chartFile) {
       latestChartFile = chartFile;
-      const chartUrl = `/charts/${chartFile}`;
-      res.json({ chartUrl });
+      // 使用绝对URL路径，确保前端可以正确访问
+      const chartUrl = `${req.protocol}://${req.get('host')}/charts/${chartFile}`;
+      
+      // 记录图表URL以便调试
+      logToFile(`Serving chart at URL: ${chartUrl}`);
+      
+      res.json({ 
+        chartUrl,
+        fileName: chartFile,
+        timestamp: new Date().toISOString()
+      });
     } else {
       res.status(404).json({ error: 'No chart available' });
     }

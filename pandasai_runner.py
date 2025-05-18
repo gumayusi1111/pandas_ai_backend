@@ -115,8 +115,22 @@ class PlotCapture:
         self.chart_path = os.path.join(CHARTS_DIR, new_filename)
         
         try:
+            # 确保chart_path存在且可以读取
+            if not os.path.exists(chart_path):
+                debug_print(f"Error: Source chart path does not exist: {chart_path}")
+                return
+            
+            # 使用shutil.copy2复制文件，保留元数据
             shutil.copy2(chart_path, self.chart_path)
             debug_print(f"Chart saved to {self.chart_path}")
+            
+            # 确认文件已成功复制
+            if not os.path.exists(self.chart_path):
+                debug_print("Error: Chart could not be copied to destination")
+                self.chart_path = None
+            else:
+                # 设置适当的文件权限
+                os.chmod(self.chart_path, 0o644)
         except Exception as e:
             debug_print(f"Error copying chart: {str(e)}")
             self.chart_path = None
