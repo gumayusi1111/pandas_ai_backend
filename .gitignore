@@ -70,6 +70,14 @@ data/
 htmlcov/
 
 # Render specific
- 
-# Generated charts
-charts/ 
+
+# Generated charts & output files
+charts/
+exports/
+output/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log* 
