@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: pandasai-backend
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: "pip install -r requirements.txt && npm install && ls -R node_modules/express && npm run build"
+    startCommand: "npm start"
+    healthCheckPath: "/api/health"
+    autoDeploy: true
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_BASE
+        sync: false
+      - key: PORT
+        value: 3001
