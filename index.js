@@ -437,10 +437,17 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
     '--api-key', activeConfig.apiKey,
     '--api-base-url', activeConfig.apiBaseUrl
   ];
+  
+  // Mask API key for logging
+  const loggedPythonArgs = pythonArgs.map((arg, index, arr) => {
+    if (index > 0 && arr[index - 1] === '--api-key' && typeof arg === 'string' && arg.startsWith('sk-')) {
+      return `sk-xxxx...${arg.substring(arg.length - 4)}`;
+    }
+    return arg;
+  });
+  logToFile(`Spawning Python script with args: ${loggedPythonArgs.map(arg => typeof arg === 'string' && arg.includes(' ') ? `"${arg}"` : arg).join(' ')}`);
 
-  logToFile(`Spawning Python script with args: ${pythonArgs.map(arg => arg.includes(' ') ? `"${arg}"` : arg).join(' ')}`);
-
-  const pythonProcess = spawn('python', pythonArgs);
+  const pythonProcess = spawn('python', pythonArgs); // Use original pythonArgs here
   
   let result = '';
   let errorLogs = '';
