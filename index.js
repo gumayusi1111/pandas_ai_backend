@@ -445,15 +445,15 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
     }
     return arg;
   });
-  logToFile(`Spawning Python script with args: ${loggedPythonArgs.map(arg => typeof arg === 'string' && arg.includes(' ') ? `"${arg}"` : arg).join(' ')}`);
+  logToFile(`Spawning Python script with args: ${loggedPythonArgs.map(arg => typeof arg === 'string' && arg.includes(' ') ? `\"${arg}\"` : arg).join(' ')}`);
 
-  const pythonProcess = spawn('python', pythonArgs); // Use original pythonArgs here
-  
-  let result = '';
+  const pythonProcess = spawn('python', pythonArgs);
+
+  let scriptOutput = '';
   let errorLogs = '';
   
   pythonProcess.stdout.on('data', (data) => {
-    result += data.toString();
+    scriptOutput += data.toString();
   });
   
   pythonProcess.stderr.on('data', (data) => {
@@ -487,7 +487,7 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
     
     try {
       // Attempt to parse the JSON result
-      const resultObj = JSON.parse(result);
+      const resultObj = JSON.parse(scriptOutput);
       
       // If the parsed object contains an error from Python, return it
       if (resultObj.error) {
@@ -511,7 +511,7 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
       res.json(resultObj);
     } catch (e) {
       logToFile(`Error parsing result: ${e.message}`, 'error');
-      logToFile(`Raw result was: ${result.substring(0, 200)}...`, 'error');
+      logToFile(`Raw result was: ${scriptOutput.substring(0, 200)}...`, 'error');
       res.status(500).json({ 
         error: `解析结果错误: ${e.message}`
       });
