@@ -81,14 +81,17 @@ app.use((err, req, res, next) => {
 
 // Middlewares
 app.use(cors({
-  origin: ['https://pandasai.onrender.com', 'http://localhost:5173'],
+  origin: ['https://pandasai.onrender.com', 'http://localhost:5173', 'https://pandas-ai-frontend.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 app.use(express.json());
 
-// Serve static files from frontend build
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// Serve static files from frontend build - 只在本地开发环境使用
+if (fs.existsSync(path.join(__dirname, '../frontend/dist'))) {
+  app.use(express.static(path.join(__dirname, '../frontend/dist')));
+}
 
 // Serve chart images from the charts directory
 app.use('/charts', express.static(path.join(__dirname, 'charts')));
@@ -577,9 +580,15 @@ app.get('/api/supported_formats', (req, res) => {
   res.json(formats);
 });
 
-// SPA fallback
+// SPA fallback - 只在本地开发环境使用
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  const frontendPath = path.join(__dirname, '../frontend/dist/index.html');
+  if (fs.existsSync(frontendPath)) {
+    res.sendFile(frontendPath);
+  } else {
+    // 在Render部署中，前端在Vercel上，所以不需要提供前端文件
+    res.status(404).json({ message: 'API endpoint not found. Frontend is served from a different origin.' });
+  }
 });
 
 // 优雅地处理未捕获的异常
