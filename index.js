@@ -505,6 +505,50 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
         });
       }
       
+      // 检查代码是否为空，如果为空则生成默认代码
+      if (!resultObj.code || resultObj.code.trim() === '') {
+        const userQuery = query;
+        let fileName = 'sample_data.csv';
+        if (filePath) {
+          fileName = path.basename(filePath);
+        }
+        
+        // 根据查询生成默认示例代码
+        resultObj.code = `import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+# 加载数据
+df = pd.read_csv('${fileName}')
+
+# 基于查询"${userQuery}"生成图表
+# 注意: 由于AI生成器出现问题，这是一个默认代码示例
+# 您可能需要根据实际数据结构调整此代码
+
+# 显示数据前几行，了解结构
+print(df.head())
+
+# 显示数据信息
+print(df.info())
+
+# 根据查询绘制图表
+plt.figure(figsize=(10, 6))
+# 这里应该是针对您的查询"${userQuery}"的代码
+# 以下是示例代码，请根据您的数据结构修改
+
+# 示例: 绘制柱状图
+# df.groupby('列名').sum().plot(kind='bar')
+
+plt.title('${userQuery}')
+plt.xlabel('X轴标签')
+plt.ylabel('Y轴标签')
+plt.tight_layout()
+plt.savefig('chart.png')
+plt.show()`;
+        
+        logToFile(`Generated default code template for query: ${userQuery}`);
+      }
+      
       // Add to history
       const history = loadHistory();
       history.unshift(resultObj);
@@ -514,6 +558,9 @@ app.post('/api/generate', upload.single('csv_file'), (req, res) => {
       latestChartFile = findLatestChartFile();
       if (latestChartFile) {
         logToFile(`New chart file detected: ${latestChartFile}`);
+        
+        // 添加图表URL到响应中
+        resultObj.chartUrl = `${req.protocol}://${req.get('host')}/charts/${latestChartFile}`;
       }
       
       res.json(resultObj);
