@@ -4,6 +4,7 @@ const cors = require('cors');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -578,6 +579,63 @@ app.get('/api/supported_formats', (req, res) => {
   // List of supported file formats
   const formats = ['csv', 'xlsx', 'xls', 'json', 'parquet', 'feather', 'pickle', 'pkl'];
   res.json(formats);
+});
+
+// 添加代理路由处理对aitopia.ai的请求
+app.all('/proxy/aitopia/:path(*)', async (req, res) => {
+  const targetPath = req.params.path;
+  const targetUrl = `https://extensions.aitopia.ai/${targetPath}`;
+  
+  try {
+    logToFile(`代理请求到: ${targetUrl}`);
+    
+    // 转发请求方法、请求体和头信息
+    const response = await axios({
+      method: req.method,
+      url: targetUrl,
+      data: req.method !== 'GET' ? req.body : undefined,
+      params: req.method === 'GET' ? req.query : undefined,
+      headers: {
+        ...req.headers,
+        host: 'extensions.aitopia.ai',
+        origin: 'https://extensions.aitopia.ai',
+        referer: 'https://extensions.aitopia.ai/'
+      },
+      responseType: 'arraybuffer'
+    });
+    
+    // 设置响应头
+    Object.entries(response.headers).forEach(([key, value]) => {
+      // 不转发这些CORS相关的头，我们会自己设置
+      if (!['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers'].includes(key.toLowerCase())) {
+        res.set(key, value);
+      }
+    });
+    
+    // 设置CORS头
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // 返回响应数据和状态码
+    res.status(response.status).send(response.data);
+    logToFile(`代理请求成功: ${targetUrl} ${response.status}`);
+  } catch (error) {
+    logToFile(`代理请求错误: ${targetUrl} ${error.message}`, 'error');
+    if (error.response) {
+      res.status(error.response.status).send(error.response.data);
+    } else {
+      res.status(500).json({ error: '代理请求失败', message: error.message });
+    }
+  }
+});
+
+// OPTIONS预检请求处理
+app.options('/proxy/aitopia/:path(*)', (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.status(200).end();
 });
 
 // SPA fallback - 只在本地开发环境使用
